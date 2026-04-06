@@ -248,20 +248,39 @@ async def _strategy_direct_connect(
             if audit:
                 audit.selector_tried(targeted, hit=False)
 
-    for selector in [
-        CONNECT_LINK_HREF,
-        CONNECT_LINK_ARIA,
-        CONNECT_LINK_TEXT,
-        CONNECT_BUTTON_ARIA,
-        CONNECT_BUTTON_TEXT,
-        ADD_BUTTON_ARIA,
-        ADD_BUTTON_TEXT,
-    ]:
+    # Precise selectors — href and aria-label patterns unlikely to match sidebar cards
+    for selector in [CONNECT_LINK_HREF, CONNECT_LINK_ARIA]:
         try:
             btn = main.locator(selector).first
             await btn.wait_for(state="visible", timeout=FAST_TIMEOUT)
             await btn.click()
             print(f"[direct_connect] Clicked via: {selector}")
+            if audit:
+                audit.selector_tried(selector, hit=True)
+            return True
+        except PWTimeout:
+            if audit:
+                audit.selector_tried(selector, hit=False)
+            continue
+
+    # Broad selectors (text/partial-aria) — scope to the profile header section
+    # so they can't accidentally match "People you may know" sidebar cards in <main>
+    header = await _find_profile_header_section(page)
+    if header is None:
+        return False
+
+    for selector in [
+        CONNECT_BUTTON_ARIA,
+        CONNECT_LINK_TEXT,
+        CONNECT_BUTTON_TEXT,
+        ADD_BUTTON_ARIA,
+        ADD_BUTTON_TEXT,
+    ]:
+        try:
+            btn = header.locator(selector).first
+            await btn.wait_for(state="visible", timeout=FAST_TIMEOUT)
+            await btn.click()
+            print(f"[direct_connect] Clicked via (header-scoped): {selector}")
             if audit:
                 audit.selector_tried(selector, hit=True)
             return True
@@ -434,10 +453,12 @@ async def _handle_post_click(
         except PWTimeout:
             continue
     else:
-        # "How do you know X?" modal
+        # "How do you know X?" modal — scope to [role="dialog"] so we don't
+        # accidentally rematch the profile's Connect button still visible in <main>
+        dialog = page.locator('[role="dialog"]')
         for selector in MODAL_CONNECT_BUTTON:
             try:
-                btn = page.locator(selector).first
+                btn = dialog.locator(selector).first
                 await btn.wait_for(state="visible", timeout=FAST_TIMEOUT)
                 await btn.click()
                 print("[post_click] Clicked Connect inside modal.")
@@ -541,6 +562,29 @@ async def _detect_success(page: Page, audit: "AuditLogger | None" = None) -> boo
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+async def _find_profile_header_section(page: Page):
+    """
+    Return a Locator scoped to the profile action strip section, or None.
+
+    Uses the custom-invite link or More button as an anchor to find the
+    containing <section> element. This lets broad text selectors be safely
+    scoped so they can't match sidebar "People you may know" cards.
+    """
+    main = page.locator("main")
+    for anchor_sel in [
+        'a[href*="/preload/custom-invite/"]',
+        'button[aria-label="More"][aria-expanded]',
+        'button[aria-label="More actions"][aria-expanded]',
+    ]:
+        section = main.locator("section").filter(has=page.locator(anchor_sel))
+        try:
+            await section.first.wait_for(state="attached", timeout=FAST_TIMEOUT)
+            return section.first
+        except PWTimeout:
+            continue
+    return None
+
 
 async def _check_profile_state(page: Page) -> str:
     """
