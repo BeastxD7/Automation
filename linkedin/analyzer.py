@@ -150,9 +150,16 @@ def _is_blocked(element: dict) -> bool:
     """Return True if this element should never be clicked (wrong action type)."""
     text = (element.get("text") or "").lower().strip()
     aria = (element.get("ariaLabel") or "").lower().strip()
+    href = (element.get("href") or "").lower()
+
     for pattern in _BLOCKED_PATTERNS:
         if pattern in text or pattern in aria:
             return True
+
+    # Mutual connection search links — clicking these navigates away from the profile
+    if "/search/results/people/" in href:
+        return True
+
     return False
 
 

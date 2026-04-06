@@ -6,13 +6,18 @@
 # As of 2026-04, the Connect button is an <a> tag (not <button>):
 #   aria-label="Invite ... to connect", href="/preload/custom-invite/..."
 CONNECT_BUTTON_ARIA = 'button[aria-label*="Connect"]'
-CONNECT_BUTTON_TEXT = 'button:has-text("Connect")'
 ADD_BUTTON_ARIA = 'button[aria-label*="Add"]'
 ADD_BUTTON_TEXT = 'button:has-text("Add")'
 # <a>-tag variants (current LinkedIn layout)
 CONNECT_LINK_ARIA = 'a[aria-label*="connect"]'
 CONNECT_LINK_HREF = 'a[href*="/preload/custom-invite/"]'
-CONNECT_LINK_TEXT = 'a:has-text("Connect")'
+# NOTE: a:has-text("Connect") and button:has-text("Connect") are intentionally
+# omitted — Playwright :has-text() is case-insensitive and matches
+# "mutual connection" links, causing navigation to the wrong page.
+
+# Mutual connection search links — must never be clicked
+# href pattern: /search/results/people/?origin=MEMBER_PROFILE_CANNED_SEARCH&...connectionOf=...
+MUTUAL_CONNECTION_HREF_PATTERN = "/search/results/people/"
 
 # --- "More" overflow dropdown (hides Connect in some layouts) ---
 # As of 2026-04: <button aria-label="More" aria-expanded="false">
@@ -24,25 +29,26 @@ MORE_BUTTON_SELECTORS = [
     'button.artdeco-dropdown__trigger',
 ]
 
-# Container that LinkedIn renders for an open dropdown menu
-# Search for Connect INSIDE this container to avoid matching sidebar elements
+# Container that LinkedIn renders for an open dropdown menu.
+# As of 2026-04: <div role="menu"> inside a popover="manual" div
 DROPDOWN_CONTAINER_SELECTORS = [
-    '.artdeco-dropdown__content',
-    '[role="menu"]',
+    'div[role="menu"]',                  # current layout (inside popover="manual")
+    '[popover="manual"] [role="menu"]',  # explicit popover wrapper
+    '.artdeco-dropdown__content',        # legacy artdeco layout
     '[role="listbox"]',
-    # fallback: any visible list that appeared after clicking More
-    'ul[class*="dropdown"]',
 ]
 
-# Connect / Add option — used relative to the dropdown container, not the whole page
+# Connect / Add option inside the dropdown.
+# As of 2026-04: <a role="menuitem" href="/preload/custom-invite/?vanityName=...">
+# The inner div has aria-label="Invite ... to connect"
 CONNECT_IN_DROPDOWN = [
+    'a[role="menuitem"][href*="/preload/custom-invite/"]',  # most precise — current layout
+    'a[role="menuitem"][href*="vanityName="]',              # vanityName param match
+    'div[aria-label*="connect" i]',                        # inner div aria-label
     'div[aria-label*="Connect"]',
     'div[aria-label*="Add"]',
-    'li:has-text("Connect") button',
-    'li:has-text("Add") button',
-    # These two are broad — only used as last resort inside the scoped container
-    'span:has-text("Connect")',
-    'span:has-text("Add")',
+    '[role="menuitem"]:has-text("Connect")',                # scoped to menuitem role
+    '[role="menuitem"]:has-text("Add")',
 ]
 
 # --- Modal (shown after clicking Connect) ---

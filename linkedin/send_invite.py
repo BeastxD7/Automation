@@ -22,12 +22,10 @@ from contextlib import asynccontextmanager
 
 from linkedin.selectors import (
     CONNECT_BUTTON_ARIA,
-    CONNECT_BUTTON_TEXT,
     ADD_BUTTON_ARIA,
     ADD_BUTTON_TEXT,
     CONNECT_LINK_ARIA,
     CONNECT_LINK_HREF,
-    CONNECT_LINK_TEXT,
     MORE_BUTTON_SELECTORS,
     CONNECT_IN_DROPDOWN,
     DROPDOWN_CONTAINER_SELECTORS,
@@ -263,19 +261,15 @@ async def _strategy_direct_connect(
                 audit.selector_tried(selector, hit=False)
             continue
 
-    # Broad selectors (text/partial-aria) — scope to the profile header section
-    # so they can't accidentally match "People you may know" sidebar cards in <main>
+    # aria-label partial-match selectors — scoped to the profile header section.
+    # NOTE: text-based selectors (a:has-text, button:has-text) are intentionally
+    # excluded here because Playwright's :has-text() is case-insensitive and will
+    # match "mutual connection" links, navigating to the wrong page.
     header = await _find_profile_header_section(page)
     if header is None:
         return False
 
-    for selector in [
-        CONNECT_BUTTON_ARIA,
-        CONNECT_LINK_TEXT,
-        CONNECT_BUTTON_TEXT,
-        ADD_BUTTON_ARIA,
-        ADD_BUTTON_TEXT,
-    ]:
+    for selector in [CONNECT_BUTTON_ARIA, ADD_BUTTON_ARIA, ADD_BUTTON_TEXT]:
         try:
             btn = header.locator(selector).first
             await btn.wait_for(state="visible", timeout=FAST_TIMEOUT)
@@ -292,10 +286,27 @@ async def _strategy_direct_connect(
 
 
 # ---------------------------------------------------------------------------
+# Robust click — falls back to JS dispatch when an overlay intercepts
+# ---------------------------------------------------------------------------
+
+async def _robust_click(page: Page, locator) -> None:
+    """
+    Try a normal Playwright click first. If an overlay is intercepting pointer
+    events (common with LinkedIn's cookie/notification bars), fall back to a
+    direct JavaScript click which bypasses the overlay check.
+    """
+    try:
+        await locator.click(timeout=FAST_TIMEOUT)
+    except Exception:
+        print("[robust_click] Normal click intercepted — using JS click fallback.")
+        await locator.evaluate("el => el.click()")
+
+
+# ---------------------------------------------------------------------------
 # Shared: click Connect inside an open dropdown, scoped to the container
 # ---------------------------------------------------------------------------
 
-async def _click_connect_in_dropdown(page: Page) -> bool:
+async def _click_connect_in_dropdown(page: Page, vanity_name: str | None = None) -> bool:
     """
     After the More button is clicked and the dropdown is open, find and click
     the Connect/Add option.
@@ -331,7 +342,19 @@ async def _click_connect_in_dropdown(page: Page) -> bool:
                 continue
         return False
 
-    # Scoped search inside the container
+    # Most precise: vanity-name scoped link inside the container
+    if vanity_name:
+        targeted = f'a[href*="vanityName={vanity_name}"]'
+        try:
+            opt = container.locator(targeted).first
+            await opt.wait_for(state="visible", timeout=FAST_TIMEOUT)
+            await opt.click()
+            print(f"[dropdown] Clicked Connect via vanity-name href ({vanity_name})")
+            return True
+        except PWTimeout:
+            pass
+
+    # Scoped fallback selectors inside the container
     for selector in CONNECT_IN_DROPDOWN:
         try:
             opt = container.locator(selector).first
@@ -367,10 +390,10 @@ async def _strategy_more_dropdown(page: Page, audit: "AuditLogger | None" = None
     if more_btn is None:
         return False
 
-    await more_btn.click()
+    await _robust_click(page, more_btn)
     await asyncio.sleep(0.5)
 
-    if await _click_connect_in_dropdown(page):
+    if await _click_connect_in_dropdown(page, vanity_name=None):
         print("[more_dropdown] Clicked Connect inside dropdown.")
         return True
 
@@ -415,10 +438,10 @@ async def _strategy_llm_analyzer(
             return False
         locator = await get_element_locator(page, element)
         await locator.wait_for(state="visible", timeout=FAST_TIMEOUT)
-        await locator.click()
+        await _robust_click(page, locator)
         await asyncio.sleep(0.5)
 
-        if await _click_connect_in_dropdown(page):
+        if await _click_connect_in_dropdown(page, vanity_name=vanity_name):
             print("[llm_analyzer] Clicked Connect inside dropdown.")
             return True
 
