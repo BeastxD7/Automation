@@ -110,7 +110,10 @@ async def send_invite(page: Page, profile_url: str, force_llm: bool = False) -> 
     # Check for follow-only profiles (no Connect option exists at all)
     main = page.locator("main")
     has_connect = await main.locator(
-        'a[href*="/preload/custom-invite/"], button[aria-label*="Connect"], button[aria-label*="Add"], button[aria-label="More"]'
+        'a[href*="/preload/custom-invite/"], '
+        'button[aria-label*="connect" i], a[aria-label*="connect" i], '
+        'button[aria-label*="Add"], a[aria-label*="Add"], '
+        'button[aria-label="More"], button[aria-label="More actions"]'
     ).count() > 0
     if not has_connect:
         for selector in FOLLOW_ONLY_INDICATORS:
@@ -639,8 +642,9 @@ async def _check_profile_state(page: Page) -> str:
             # connected yet. Only call it connected if no Connect/Add button exists.
             has_connect_btn = await main.locator(
                 'a[href*="/preload/custom-invite/"], '
-                'button[aria-label*="Connect"], button[aria-label*="Add"], '
-                'button[aria-label="More"]'
+                'button[aria-label*="connect" i], a[aria-label*="connect" i], '
+                'button[aria-label*="Add"], a[aria-label*="Add"], '
+                'button[aria-label="More"], button[aria-label="More actions"]'
             ).count() > 0
             if has_connect_btn:
                 return "unknown"
