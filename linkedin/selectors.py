@@ -105,6 +105,18 @@ ERROR_TOAST = [
     'span:has-text("couldn\'t send")',
     'div[aria-label*="error" i]',
     'div[aria-label*="failed" i]',
-    # Generic artdeco error toast (has a distinct class from success)
     '.artdeco-toast-item--error',
+]
+
+# Weekly invite limit reached
+INVITE_LIMIT_INDICATORS = [
+    'span:has-text("reached the weekly invitation limit")',
+    'span:has-text("invitation limit")',
+    'div[aria-label*="invitation limit" i]',
+]
+
+# Profile only allows Follow — no Connect option exists
+FOLLOW_ONLY_INDICATORS = [
+    'button[aria-label*="Follow"]',
+    'a[aria-label*="Follow"]',
 ]

@@ -169,8 +169,16 @@ async def analyze_connect_button(
     audit: "AuditLogger | None" = None,
 ) -> dict | None:
     """
-    Extracts DOM elements from <main> and asks Ollama which one to click.
-    Returns a dict with strategy + element indices, or None on failure.
+    Extracts DOM elements from the profile action strip and determines which one
+    to click for sending a connection invite.
+
+    Decision order:
+      1. Deterministic analysis — reads section tags assigned during extraction.
+         No LLM call needed in the common case.
+      2. Ollama LLM — only reached when deterministic analysis finds elements but
+         cannot categorize them (truly novel LinkedIn layout).
+
+    Returns a dict with strategy + element, or None on failure.
     """
     elements: list[dict] = await page.evaluate(_ELEMENT_QUERY, vanity_name)
 
@@ -178,10 +186,10 @@ async def analyze_connect_button(
         print("[analyzer] No interactive elements found on page.")
         return None
 
-    # Strip Follow/Message/Unfollow before the LLM ever sees them
+    # Strip Follow/Message/Unfollow before any decision is made
     blocked = [e for e in elements if _is_blocked(e)]
     elements = [e for e in elements if not _is_blocked(e)]
-    # Re-index after filtering so LLM indices are contiguous
+    # Re-index after filtering so indices are contiguous
     for i, el in enumerate(elements):
         el["index"] = i
 
@@ -195,8 +203,25 @@ async def analyze_connect_button(
 
     targeted = [e for e in elements if e.get("section") == "connect-link-targeted"]
     print(f"[analyzer] {len(elements)} elements collected "
-          f"({len(targeted)} targeted connect link{'s' if len(targeted) != 1 else ''}) "
-          f"— sending to {OLLAMA_MODEL}...")
+          f"({len(targeted)} targeted connect link{'s' if len(targeted) != 1 else ''})")
+
+    if audit:
+        audit.llm_elements(elements)
+
+    # --- Step 1: deterministic decision ---
+    result = _analyze_deterministically(elements)
+    if result:
+        print(f"[analyzer] Deterministic decision: strategy={result['strategy']}, "
+              f"confidence={result['confidence']}, label='{result.get('label')}', "
+              f"notes='{result.get('notes')}'")
+        if audit:
+            audit.llm_prompt("[deterministic — no LLM call needed]")
+            audit.llm_response_raw("[deterministic]")
+            audit.llm_response_parsed(result)
+        return result
+
+    # --- Step 2: Ollama LLM fallback (only when deterministic analysis is inconclusive) ---
+    print(f"[analyzer] Deterministic analysis inconclusive — falling back to {OLLAMA_MODEL}...")
 
     prompt = _PROMPT_TEMPLATE.format(
         vanity_name=vanity_name or "unknown",
@@ -204,7 +229,6 @@ async def analyze_connect_button(
     )
 
     if audit:
-        audit.llm_elements(elements)
         audit.llm_prompt(prompt)
 
     response = ollama.chat(
@@ -243,6 +267,70 @@ async def analyze_connect_button(
     # dropdown index being out of range is ok — caller falls back to selector scan
 
     return result
+
+
+def _analyze_deterministically(elements: list[dict]) -> dict | None:
+    """
+    Decide the connect strategy purely from element section tags and text.
+    Returns the same dict shape as the LLM prompt, with 'element' already attached.
+
+    Section tags assigned during DOM extraction:
+      'connect-link-targeted' — <a> href contains vanityName=<target>  (best match)
+      'connect-link'          — <a> href contains /preload/custom-invite/  (generic)
+      'profile-actions'       — buttons in the same DOM section as the connect link
+
+    Decision priority:
+      1. targeted connect link  → strategy "direct" (high confidence)
+      2. generic connect link   → strategy "direct" (high confidence)
+      3. connect/add text in profile-actions  → strategy "direct" (medium confidence)
+      4. more/... text in profile-actions     → strategy "dropdown" (medium confidence)
+      5. cannot decide → return None (LLM will be tried)
+    """
+    # Priority 1 & 2: the connect link element itself — click it directly
+    for section_label in ("connect-link-targeted", "connect-link"):
+        matches = [e for e in elements if e.get("section") == section_label]
+        if matches:
+            el = matches[0]
+            return {
+                "strategy": "direct",
+                "element_index": el["index"],
+                "element": el,
+                "label": el.get("ariaLabel") or el.get("text"),
+                "confidence": "high",
+                "notes": f"direct connect link ({section_label})",
+            }
+
+    # Priority 3 & 4: buttons in the profile action strip
+    profile_actions = [e for e in elements if e.get("section") == "profile-actions"]
+
+    _CONNECT_KEYWORDS = ("connect", "add")
+    _MORE_KEYWORDS = ("more", "more actions", "...")
+
+    for el in profile_actions:
+        combined = f"{(el.get('text') or '')} {(el.get('ariaLabel') or '')}".lower()
+        if any(kw in combined for kw in _CONNECT_KEYWORDS):
+            return {
+                "strategy": "direct",
+                "element_index": el["index"],
+                "element": el,
+                "label": el.get("ariaLabel") or el.get("text"),
+                "confidence": "medium",
+                "notes": "connect/add keyword in profile-actions element",
+            }
+
+    for el in profile_actions:
+        combined = f"{(el.get('text') or '')} {(el.get('ariaLabel') or '')}".lower()
+        if any(kw in combined for kw in _MORE_KEYWORDS):
+            return {
+                "strategy": "dropdown",
+                "element_index": el["index"],
+                "element": el,
+                "label": el.get("ariaLabel") or el.get("text"),
+                "confidence": "medium",
+                "notes": "More button found — Connect likely in dropdown",
+            }
+
+    return None
 
 
 _POST_CLICK_QUERY = """

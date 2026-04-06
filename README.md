@@ -68,6 +68,8 @@ uv run python main.py invite https://www.linkedin.com/in/some-person/ --force-ll
 | `sent` | Invite successfully sent |
 | `pending` | Invite already sent previously, waiting for acceptance |
 | `connected` | Already connected, nothing to do |
+| `limit_reached` | LinkedIn weekly invitation limit hit |
+| `follow_only` | Profile only allows Follow — no Connect option exists |
 | `failed` | Auth wall, selectors broke, or all strategies exhausted |
 
 ## How it works

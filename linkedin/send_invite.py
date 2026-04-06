@@ -37,8 +37,10 @@ from linkedin.selectors import (
     SIGNUP_PAGE_INDICATORS,
     PENDING_SELECTORS,
     ALREADY_CONNECTED_SELECTORS,
+    INVITE_LIMIT_INDICATORS,
+    FOLLOW_ONLY_INDICATORS,
 )
-from linkedin.analyzer import analyze_connect_button, analyze_invite_result, get_element_locator, _is_blocked
+from linkedin.analyzer import analyze_connect_button, get_element_locator, _is_blocked
 from linkedin.audit import AuditLogger
 
 SESSION_DIR = Path(__file__).parent.parent / ".linkedin_session"
@@ -94,6 +96,33 @@ async def send_invite(page: Page, profile_url: str, force_llm: bool = False) -> 
         audit.close()
         return "connected"
 
+    # Check for weekly invite limit before attempting anything
+    for selector in INVITE_LIMIT_INDICATORS:
+        try:
+            await page.locator(selector).first.wait_for(state="visible", timeout=2_000)
+            print("[send_invite] Weekly invitation limit reached.")
+            audit.final_result("limit_reached")
+            audit.close()
+            return "limit_reached"
+        except PWTimeout:
+            continue
+
+    # Check for follow-only profiles (no Connect option exists at all)
+    main = page.locator("main")
+    has_connect = await main.locator(
+        'a[href*="/preload/custom-invite/"], button[aria-label*="Connect"], button[aria-label*="Add"], button[aria-label="More"]'
+    ).count() > 0
+    if not has_connect:
+        for selector in FOLLOW_ONLY_INDICATORS:
+            try:
+                await main.locator(selector).first.wait_for(state="visible", timeout=2_000)
+                print("[send_invite] Follow-only profile — no Connect option available.")
+                audit.final_result("follow_only")
+                audit.close()
+                return "follow_only"
+            except PWTimeout:
+                continue
+
     status = "failed"
 
     if not force_llm:
@@ -132,7 +161,7 @@ async def send_invite(page: Page, profile_url: str, force_llm: bool = False) -> 
     print("[send_invite] Falling back to LLM analyzer.")
     try:
         if await _strategy_llm_analyzer(page, vanity_name=vanity_name, audit=audit):
-            result = await _handle_post_click(page, vanity_name=vanity_name, use_llm=force_llm, audit=audit)
+            result = await _handle_post_click(page, audit=audit)
             audit.strategy_result("llm_analyzer", result)
             status = "sent" if result else "failed"
             audit.final_result(status)
@@ -457,8 +486,6 @@ async def _strategy_llm_analyzer(
 
 async def _handle_post_click(
     page: Page,
-    vanity_name: str | None = None,
-    use_llm: bool = False,
     audit: "AuditLogger | None" = None,
 ) -> bool:
     await asyncio.sleep(0.8)
@@ -493,35 +520,6 @@ async def _handle_post_click(
 
     await asyncio.sleep(1.0)  # let toast/UI settle before reading state
 
-    if use_llm:
-        return await _detect_success_llm(page, vanity_name, audit=audit)
-    return await _detect_success(page, audit=audit)
-
-
-async def _detect_success_llm(
-    page: Page,
-    vanity_name: str | None = None,
-    audit: "AuditLogger | None" = None,
-) -> bool:
-    analysis = await analyze_invite_result(page, vanity_name=vanity_name, audit=audit)
-    if not analysis:
-        print("[detect_success_llm] No analysis returned — falling back to hardcoded detection.")
-        return await _detect_success(page, audit=audit)
-
-    result = analysis.get("result")
-    confidence = analysis.get("confidence", "unknown")
-    reason = analysis.get("reason", "")
-    print(f"[detect_success_llm] result={result}, confidence={confidence}, reason='{reason}'")
-
-    if audit:
-        audit.success_detection(f"llm (confidence={confidence}, reason='{reason}')", result == "sent")
-
-    if result == "sent":
-        return True
-    if result == "failed":
-        return False
-
-    print("[detect_success_llm] Ambiguous result — falling back to hardcoded detection.")
     return await _detect_success(page, audit=audit)
 
 
@@ -549,12 +547,24 @@ async def _detect_success(page: Page, audit: "AuditLogger | None" = None) -> boo
         except PWTimeout:
             continue
 
-    # Step 3: fallback — Connect button disappearing usually means success.
+    # Step 3: Pending button appeared — most reliable signal after dropdown invite.
+    # When Connect is sent via More dropdown, the direct connect link is never in
+    # the page so button-gone can't work. Pending appearing IS the confirmation.
+    main = page.locator("main")
+    for selector in PENDING_SELECTORS:
+        try:
+            await main.locator(selector).first.wait_for(state="visible", timeout=SLOW_TIMEOUT)
+            print(f"[detect_success] Pending button appeared ({selector}) — invite sent.")
+            if audit:
+                audit.success_detection(f"pending button appeared ({selector})", True)
+            return True
+        except PWTimeout:
+            continue
+
+    # Step 4: fallback — Connect button disappearing usually means success.
     # Only check selectors where the element is actually present on the page first —
     # an element that was never there is immediately "hidden", causing a false positive.
-    main = page.locator("main")
     for selector in [CONNECT_LINK_HREF, CONNECT_LINK_ARIA, CONNECT_BUTTON_ARIA, ADD_BUTTON_ARIA]:
-        # Skip if element isn't on the page at all
         if await main.locator(selector).count() == 0:
             continue
         try:
@@ -624,6 +634,16 @@ async def _check_profile_state(page: Page) -> str:
     for selector in ALREADY_CONNECTED_SELECTORS:
         try:
             await main.locator(selector).first.wait_for(state="visible", timeout=2_000)
+            # A "Message" button alone means connected. But some profiles show
+            # "Message" (InMail) alongside a Connect/Add button — that means NOT
+            # connected yet. Only call it connected if no Connect/Add button exists.
+            has_connect_btn = await main.locator(
+                'a[href*="/preload/custom-invite/"], '
+                'button[aria-label*="Connect"], button[aria-label*="Add"], '
+                'button[aria-label="More"]'
+            ).count() > 0
+            if has_connect_btn:
+                return "unknown"
             return "connected"
         except PWTimeout:
             continue
