@@ -15,3 +15,6 @@ wheels/
 # LinkedIn session (contains cookies/auth — never commit)
 .linkedin_session/
 linkedin_session/
+
+# Audit logs
+logs/

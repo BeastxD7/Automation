@@ -15,23 +15,34 @@ CONNECT_LINK_HREF = 'a[href*="/preload/custom-invite/"]'
 CONNECT_LINK_TEXT = 'a:has-text("Connect")'
 
 # --- "More" overflow dropdown (hides Connect in some layouts) ---
-# Layout B/C: Connect is buried under a "More" or "..." button
+# As of 2026-04: <button aria-label="More" aria-expanded="false">
 MORE_BUTTON_SELECTORS = [
-    'button[aria-label="More actions"]',
+    'button[aria-label="More"]',           # exact match — current layout
+    'button[aria-label="More actions"]',   # alternate aria-label seen in some A/B tests
+    'button[aria-label*="More"][aria-expanded]',  # any More button that is a dropdown trigger
     'button:has-text("More")',
-    'button[aria-label*="More"]',
-    # icon-only variant (three dots)
     'button.artdeco-dropdown__trigger',
 ]
 
-# Connect / Add option inside the dropdown
+# Container that LinkedIn renders for an open dropdown menu
+# Search for Connect INSIDE this container to avoid matching sidebar elements
+DROPDOWN_CONTAINER_SELECTORS = [
+    '.artdeco-dropdown__content',
+    '[role="menu"]',
+    '[role="listbox"]',
+    # fallback: any visible list that appeared after clicking More
+    'ul[class*="dropdown"]',
+]
+
+# Connect / Add option — used relative to the dropdown container, not the whole page
 CONNECT_IN_DROPDOWN = [
     'div[aria-label*="Connect"]',
     'div[aria-label*="Add"]',
-    'span:has-text("Connect")',
-    'span:has-text("Add")',
     'li:has-text("Connect") button',
     'li:has-text("Add") button',
+    # These two are broad — only used as last resort inside the scoped container
+    'span:has-text("Connect")',
+    'span:has-text("Add")',
 ]
 
 # --- Modal (shown after clicking Connect) ---
@@ -44,6 +55,20 @@ MODAL_SEND_WITHOUT_NOTE = [
 MODAL_CONNECT_BUTTON = [
     'button[aria-label*="Connect"]',
     'button:has-text("Connect")',
+]
+
+# --- Already-sent / already-connected states ---
+# Shown when an invite is pending or the profiles are already connected
+PENDING_SELECTORS = [
+    'button[aria-label*="Pending"]',
+    'button:has-text("Pending")',
+    'a[aria-label*="Pending"]',
+    'a:has-text("Pending")',
+]
+ALREADY_CONNECTED_SELECTORS = [
+    'button[aria-label*="Message"]',   # "Message" replaces Connect once connected
+    'a[aria-label*="Message"]',
+    'button:has-text("Message")',
 ]
 
 # --- Signup / login wall (shown to logged-out users or on bot detection) ---
@@ -64,5 +89,16 @@ SIGNUP_PAGE_INDICATORS = [
 SUCCESS_TOAST = [
     'div[aria-label*="Invitation sent"]',
     'span:has-text("Invitation sent")',
-    '.artdeco-toast-item',
+]
+
+# Error/failure toast indicators
+ERROR_TOAST = [
+    'span:has-text("Unable to connect")',
+    'span:has-text("something went wrong")',
+    'span:has-text("can\'t be sent")',
+    'span:has-text("couldn\'t send")',
+    'div[aria-label*="error" i]',
+    'div[aria-label*="failed" i]',
+    # Generic artdeco error toast (has a distinct class from success)
+    '.artdeco-toast-item--error',
 ]
