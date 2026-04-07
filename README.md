@@ -107,6 +107,29 @@ logs/2026-04-06_14-32-01_royalsalins.log
 
 > Logs are gitignored — they stay local and are never committed.
 
+## Error logs
+
+When a failure occurs, the automation saves a screenshot and the `<main>` HTML to `error_logs/` for debugging.
+
+Files are named after the run timestamp, vanity name, and the failure point:
+
+```
+error_logs/2026-04-06_14-32-01_royalsalins_all_strategies_exhausted.png
+error_logs/2026-04-06_14-32-01_royalsalins_all_strategies_exhausted.html
+```
+
+| Label | When it's captured |
+|---|---|
+| `navigation_failed` | Page navigation threw an error |
+| `direct_connect_exception` | Strategy 1 raised an unexpected exception |
+| `more_dropdown_exception` | Strategy 2 raised an unexpected exception |
+| `llm_analyzer_exception` | Strategy 3 raised an unexpected exception |
+| `all_strategies_exhausted` | All 3 strategies ran but none found the Connect button |
+
+The HTML file contains the `<main>` section at the moment of failure — useful for inspecting what LinkedIn actually rendered so you can update selectors. The screenshot shows the full page state.
+
+> Error logs are gitignored — they stay local and are never committed.
+
 ## File structure
 
 ```
@@ -119,6 +142,7 @@ automations/
 │   ├── analyzer.py          # Ollama LLM fallback (element collection + prompting)
 │   └── audit.py             # Audit logger — writes per-run log files
 ├── logs/                    # Audit logs (gitignored)
+├── error_logs/              # Screenshots + HTML dumps on failure (gitignored)
 └── .linkedin_session/       # Saved browser session — never commit this
 ```
 

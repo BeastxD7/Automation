@@ -72,6 +72,7 @@ async def send_invite(page: Page, profile_url: str, force_llm: bool = False) -> 
         await _wait_for_profile_load(page)
     except Exception as e:
         print(f"[send_invite] Navigation failed: {e}")
+        await audit.capture_error(page, "navigation_failed")
         audit.final_result("failed")
         audit.close()
         return "failed"
@@ -141,6 +142,7 @@ async def send_invite(page: Page, profile_url: str, force_llm: bool = False) -> 
                 return status
         except Exception as e:
             print(f"[send_invite] direct_connect raised: {e}")
+            await audit.capture_error(page, "direct_connect_exception")
         audit.strategy_result("direct_connect", False)
 
         # Strategy 2: More dropdown
@@ -155,6 +157,7 @@ async def send_invite(page: Page, profile_url: str, force_llm: bool = False) -> 
                 return status
         except Exception as e:
             print(f"[send_invite] more_dropdown raised: {e}")
+            await audit.capture_error(page, "more_dropdown_exception")
         audit.strategy_result("more_dropdown", False)
     else:
         print("[send_invite] Skipping hardcoded strategies (--force-llm).")
@@ -172,9 +175,11 @@ async def send_invite(page: Page, profile_url: str, force_llm: bool = False) -> 
             return status
     except Exception as e:
         print(f"[send_invite] llm_analyzer raised: {e}")
+        await audit.capture_error(page, "llm_analyzer_exception")
     audit.strategy_result("llm_analyzer", False)
 
     print("[send_invite] All strategies exhausted.")
+    await audit.capture_error(page, "all_strategies_exhausted")
     audit.final_result("failed")
     audit.close()
     return "failed"

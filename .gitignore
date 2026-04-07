@@ -18,3 +18,4 @@ linkedin_session/
 
 # Audit logs
 logs/
+error_logs/

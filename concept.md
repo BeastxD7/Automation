@@ -334,6 +334,33 @@ This is useful for debugging when the automation fails — you can see exactly w
 
 ---
 
+## Part 6 — Error Logs
+
+When a failure occurs, the automation saves two files to `error_logs/`:
+
+```
+error_logs/2026-04-06_14-32-01_john-doe_all_strategies_exhausted.png
+error_logs/2026-04-06_14-32-01_john-doe_all_strategies_exhausted.html
+```
+
+**The screenshot** captures the full browser page at the exact moment of failure — so you can see what LinkedIn was showing.
+
+**The HTML file** captures the `<main>` section of the page — the part that contains the profile header, action buttons, and all the selectors the automation was trying to match. This is the most useful artifact for debugging broken selectors: open the HTML, search for "Connect" or "Add", and see what LinkedIn actually rendered.
+
+The label in the filename tells you where the failure happened:
+
+```
+navigation_failed          → page never loaded
+direct_connect_exception   → Strategy 1 crashed with an exception
+more_dropdown_exception    → Strategy 2 crashed with an exception
+llm_analyzer_exception     → Strategy 3 crashed with an exception
+all_strategies_exhausted   → all 3 strategies ran but found nothing to click
+```
+
+Both files are gitignored and stay local.
+
+---
+
 ## Summary Flow (The Full Picture)
 
 ```
@@ -378,6 +405,9 @@ uv run python main.py invite <url>
     │  (LLM only if deterministic fails)             │
     └── Hit? → Click → Go to Post-Click ────────────┘
             │ Miss?
+            ▼
+    capture screenshot + <main> HTML → error_logs/
+            │
             ▼
         return "failed"
 
